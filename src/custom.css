@@ -1,0 +1,27 @@
+/**
+ * CUSTOM CSS ESCAPE HATCH
+ *
+ * Keep this file free of active CSS rules unless:
+ * 1. The user explicitly asks for custom/plain CSS, or
+ * 2. The design cannot be implemented with Tailwind utilities, variants,
+ *    arbitrary values, or theme tokens.
+ *
+ * Prefer Tailwind classes in components for all ordinary styling.
+ *
+ * Example of an appropriate use: custom keyframes that Tailwind utilities
+ * cannot define on their own.
+ *
+ * @keyframes logo-orbit {
+ *   from {
+ *     transform: rotate(0deg) translateX(2rem) rotate(0deg);
+ *   }
+ *
+ *   to {
+ *     transform: rotate(360deg) translateX(2rem) rotate(-360deg);
+ *   }
+ * }
+ *
+ * .logo-orbit {
+ *   animation: logo-orbit 4s linear infinite;
+ * }
+ */

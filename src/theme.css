@@ -1,0 +1,37 @@
+/**
+ * ⚠️ THEME CONFIGURATION — Tailwind v4
+ * Add custom theme values INSIDE the @theme { } block below.
+ */
+@theme {
+	/* Colors */
+	--color-primary: #1d4ed8;
+	--color-primary-foreground: #ffffff;
+
+	--color-secondary: #0f172a;
+	--color-secondary-foreground: #ffffff;
+
+	--color-destructive: #dc2626;
+	--color-destructive-foreground: #ffffff;
+
+	--color-success: #16a34a;
+	--color-success-foreground: #ffffff;
+
+	--color-warning: #d97706;
+	--color-warning-foreground: #ffffff;
+
+	--color-muted: #f1f5f9;
+	--color-muted-foreground: #64748b;
+
+	--color-accent: #0ea5e9;
+	--color-accent-foreground: #ffffff;
+
+	--color-border: #e2e8f0;
+	--color-input: #e2e8f0;
+	--color-ring: #1d4ed8;
+
+	/* Radius */
+	--radius-sm: 0.375rem;
+	--radius-md: 0.5rem;
+	--radius-lg: 0.75rem;
+	--radius-xl: 1rem;
+}
