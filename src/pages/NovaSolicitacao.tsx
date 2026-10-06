@@ -16,6 +16,33 @@ interface ItemSolicitacao {
   quantidade: number;
 }
 
+interface Rascunho {
+  itens: ItemSolicitacao[];
+  referencia: string | null;
+  colecao: string;
+  cor: string;
+  tamanho: string;
+  quantidade: string;
+}
+
+function lerRascunho(chave: string): Rascunho | null {
+  try {
+    const bruto = localStorage.getItem(chave);
+    if (!bruto) return null;
+    const dados = JSON.parse(bruto) as Partial<Rascunho>;
+    return {
+      itens: Array.isArray(dados.itens) ? dados.itens : [],
+      referencia: dados.referencia ?? null,
+      colecao: dados.colecao ?? '',
+      cor: dados.cor ?? '',
+      tamanho: dados.tamanho ?? '',
+      quantidade: dados.quantidade ?? ''
+    };
+  } catch {
+    return null;
+  }
+}
+
 function unicos(valores: (string | null)[]): string[] {
   return Array.from(new Set(valores.filter((v): v is string => !!v && v.trim() !== ''))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
@@ -44,6 +71,66 @@ export default function NovaSolicitacao() {
   const [itens, setItens] = useState<ItemSolicitacao[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [rascunhoCarregado, setRascunhoCarregado] = useState(false);
+  const [rascunhoRestaurado, setRascunhoRestaurado] = useState(false);
+
+  const chaveRascunho = user ? `rascunho-nova-solicitacao:${user.id}` : null;
+
+  useEffect(() => {
+    if (!chaveRascunho) return;
+    let ativo = true;
+    const rascunho = lerRascunho(chaveRascunho);
+    if (!rascunho) {
+      setRascunhoCarregado(true);
+      return;
+    }
+    const temConteudo = rascunho.itens.length > 0 || !!rascunho.referencia;
+    setItens(rascunho.itens);
+    const restaurarSelecao = async () => {
+      if (rascunho.referencia && supabase) {
+        const { data } = await supabase.from('products').select('*').eq('referencia', rascunho.referencia).eq('ativo', true);
+        if (!ativo) return;
+        setProdutosRef(data ?? []);
+        setReferencia(rascunho.referencia);
+        setBusca(rascunho.referencia);
+        setColecao(rascunho.colecao);
+        setCor(rascunho.cor);
+        setTamanho(rascunho.tamanho);
+        setQuantidade(rascunho.quantidade);
+      }
+      if (!ativo) return;
+      setRascunhoRestaurado(temConteudo);
+      setRascunhoCarregado(true);
+    };
+    void restaurarSelecao();
+    return () => {
+      ativo = false;
+    };
+  }, [chaveRascunho]);
+
+  useEffect(() => {
+    if (!chaveRascunho || !rascunhoCarregado) return;
+    if (itens.length === 0 && !referencia) {
+      localStorage.removeItem(chaveRascunho);
+      return;
+    }
+    const rascunho: Rascunho = { itens, referencia, colecao, cor, tamanho, quantidade };
+    localStorage.setItem(chaveRascunho, JSON.stringify(rascunho));
+  }, [chaveRascunho, rascunhoCarregado, itens, referencia, colecao, cor, tamanho, quantidade]);
+
+  const descartarRascunho = () => {
+    if (chaveRascunho) localStorage.removeItem(chaveRascunho);
+    setItens([]);
+    setReferencia(null);
+    setProdutosRef([]);
+    setColecao('');
+    setCor('');
+    setTamanho('');
+    setQuantidade('');
+    setBusca('');
+    setErro(null);
+    setRascunhoRestaurado(false);
+  };
 
   useEffect(() => {
     if (!supabase || referencia || busca.trim().length < 2) {
@@ -197,6 +284,7 @@ export default function NovaSolicitacao() {
       return;
     }
     await registrarHistorico(solicitacao.id, user.id, 'Criação', `Solicitação ${solicitacao.numero} criada com ${itens.length} item(ns).`);
+    if (chaveRascunho) localStorage.removeItem(chaveRascunho);
     setSalvando(false);
     navigate(`/solicitacoes/${solicitacao.id}`);
   };
@@ -204,6 +292,12 @@ export default function NovaSolicitacao() {
   return (
     <div data-ev-id="ev_0f87b2cab7" className="flex flex-col gap-4">
 			<PageHeader titulo="Nova Solicitação" descricao="Informe referência, coleção, cor, tamanho e quantidade." />
+			{rascunhoRestaurado ?
+      <div data-ev-id="ev_rascunho_aviso" role="status" className="flex flex-row flex-wrap items-center justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+					<span>Recuperamos a solicitação que você estava preenchendo.</span>
+					<Button variant="outline" onClick={descartarRascunho}>Descartar rascunho</Button>
+				</div> :
+      null}
 			{erro ? <Alert tipo="erro">{erro}</Alert> : null}
 
 			<Card>
