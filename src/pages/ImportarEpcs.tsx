@@ -22,7 +22,7 @@ export default function ImportarEpcs() {
   const requestIdParam = searchParams.get('request');
 
   const [solicitacoes, setSolicitacoes] = useState<Request[]>([]);
-  const [selecionada, setSelecionada] = useState<string>(requestIdParam ?? '');
+  const [selecionadas, setSelecionadas] = useState<string[]>(requestIdParam ? [requestIdParam] : []);
   const [itens, setItens] = useState<RequestItem[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [arquivo, setArquivo] = useState<File | null>(null);
@@ -51,12 +51,12 @@ export default function ImportarEpcs() {
 
   useEffect(() => {
     const carregar = async () => {
-      if (!supabase || !selecionada) {setItens([]);return;}
-      const { data } = await supabase.from('request_items').select('*').eq('request_id', selecionada);
+      if (!supabase || selecionadas.length === 0) {setItens([]);return;}
+      const { data } = await supabase.from('request_items').select('*').in('request_id', selecionadas);
       setItens(data ?? []);
     };
     void carregar();
-  }, [selecionada]);
+  }, [selecionadas]);
 
   const limpar = () => {
     setLinhas([]);
@@ -128,14 +128,14 @@ export default function ImportarEpcs() {
       setImportando(false);
       return;
     }
-    await supabase.from('requests').update({ status: 'EPCS_RECEBIDOS' }).eq('id', selecionada);
-    await registrarHistorico(selecionada, user.id, 'EPCs importados', `${registros.length} EPC(s) importado(s).`);
+    await supabase.from('requests').update({ status: 'EPCS_RECEBIDOS' }).in('id', selecionadas);
+    await Promise.all(selecionadas.map((requestId) => registrarHistorico(requestId, user.id, 'EPCs importados', `${registros.length} EPC(s) importado(s) em lote.`)));
     setImportando(false);
-    setSucesso(`Importação concluída. ${registros.length} EPC(s) vinculados à solicitação.`);
+    setSucesso(`Importação em lote concluída. ${registros.length} EPC(s) vinculados a ${selecionadas.length} solicitação(ões).`);
     limpar();
   };
 
-  const solSelecionada = solicitacoes.find((s) => s.id === selecionada);
+  const solsSelecionadas = solicitacoes.filter((s) => selecionadas.includes(s.id));
 
   return (
     <div data-ev-id="ev_91e4fdfce7" className="flex flex-col gap-4">
@@ -152,26 +152,25 @@ export default function ImportarEpcs() {
 			{sucesso ? <Alert tipo="sucesso">{sucesso}</Alert> : null}
 
 			<Card>
-				<CardHeader titulo="1. Selecionar solicitação" descricao="Somente solicitações com arquivo EPC gerado aparecem aqui." />
+				<CardHeader titulo="1. Selecionar solicitações" descricao="Selecione uma ou várias solicitações para importar os EPCs em lote." />
 				<div data-ev-id="ev_27b9e3baf2" className="px-5 py-4">
 					{carregando ? <Spinner /> :
-          <select data-ev-id="ev_e8a1ca80fa" className={`${inputClass} max-w-md`} value={selecionada} onChange={(e) => {setSelecionada(e.target.value);limpar();}}>
-							<option data-ev-id="ev_2958aa7871" value="">Selecione uma solicitação</option>
-							{solicitacoes.map((s) => <option data-ev-id="ev_6afcf7850f" key={s.id} value={s.id}>{s.numero}</option>)}
-						</select>
+          <div className="grid max-h-64 gap-2 overflow-y-auto md:grid-cols-2">
+            {solicitacoes.map((s) => <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50">
+              <input type="checkbox" checked={selecionadas.includes(s.id)} onChange={(e) => {setSelecionadas((atual) => e.target.checked ? [...atual, s.id] : atual.filter((id) => id !== s.id)); limpar();}} />
+              <span className="flex-1">{s.numero}</span><StatusBadge status={s.status} />
+            </label>)}
+          </div>
           }
-					{solSelecionada ?
-          <div data-ev-id="ev_b19e32d2f4" className="mt-3 flex flex-row items-center gap-3 text-sm">
-							<StatusBadge status={solSelecionada.status} />
-							<span data-ev-id="ev_a0ec6bc66d" className="text-muted-foreground">{itens.length} item(ns)</span>
-						</div> :
-          null}
+          <div className="mt-3 flex items-center gap-3 text-sm text-muted-foreground">
+            <span>{selecionadas.length} solicitação(ões) selecionada(s)</span><span>{itens.length} item(ns)</span>
+          </div>
 				</div>
 			</Card>
 
-			{selecionada ?
+			{selecionadas.length > 0 ?
       <Card>
-					<CardHeader titulo="2. Carregar arquivo Produto Iprint" descricao={`Colunas esperadas: ${IPRINT_COLUMNS.join(', ')}`} />
+					<CardHeader titulo="2. Carregar arquivo Produto Iprint" descricao={`Um único arquivo pode conter os EPCs das solicitações selecionadas. Colunas esperadas: ${IPRINT_COLUMNS.join(', ')}`} />
 					<div data-ev-id="ev_1fdf0d187f" className="flex flex-col gap-4 px-5 py-4">
 						<input data-ev-id="ev_f041200da5" type="file" accept=".csv,.txt,.xlsx,.xls" className={inputClass} onChange={(e) => {setArquivo(e.target.files?.[0] ?? null);limpar();}} />
 						<div data-ev-id="ev_f6e70accef">
