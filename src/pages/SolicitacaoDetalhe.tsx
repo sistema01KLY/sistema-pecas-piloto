@@ -10,7 +10,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { RequestStatus } from '../lib/status';
 import { formatDateTime, formatNumber } from '../lib/format';
 import { registrarHistorico } from '../lib/historico';
-import { buildEpcRows, buildErpRows, downloadCsv, downloadXlsx, EPC_COLUMNS, epcFileName, ERP_COLUMNS, erpFileName } from '../lib/fileLayouts';
+import { buildEpcRows, buildErpRows, downloadCsv, EPC_COLUMNS, epcFileName, ERP_COLUMNS, erpFileName } from '../lib/fileLayouts';
 
 type Request = Tables<'requests'>;
 type RequestItem = Tables<'request_items'>;
@@ -80,9 +80,9 @@ export default function SolicitacaoDetalhe() {
       unidade: i.unidade,
       quantidade: i.quantidade
     })));
-    const nome = epcFileName(request.numero) + '.xlsx';
+    const nome = epcFileName(request.numero) + '.csv';
     try {
-      downloadXlsx(nome, EPC_COLUMNS, rows);
+      downloadCsv(nome, EPC_COLUMNS, rows, { textColumns: [0, 1] });
       alert(`Arquivo "${nome}" gerado com sucesso!\n\nVerifique a pasta de downloads do seu navegador.`);
     } catch (e) {
       setErro(`Erro ao gerar arquivo: ${(e as Error).message}`);
