@@ -140,3 +140,7 @@ export function epcFileName(numero: string): string {
 export function erpFileName(numero: string): string {
 	return `ERP_${numero}_${timestampSuffix()}`;
 }
+
+export function erpBatchFileName(): string {
+	return `ERP_LOTE_${timestampSuffix()}`;
+}
