@@ -113,8 +113,26 @@ export function toCsv(headers: readonly string[], rows: string[][], sep = ';'): 
 	return lines.join('\r\n');
 }
 
-export function downloadCsv(filename: string, headers: readonly string[], rows: string[][]): void {
-	const content = '\uFEFF' + toCsv(headers, rows);
+export interface CsvOptions {
+	/** Colunas que devem ser abertas pelo Excel como texto, preservando zeros à esquerda. */
+	textColumns?: readonly number[];
+}
+
+function asExcelText(value: string): string {
+	return value === '' ? '' : `="${value.replace(/"/g, '""')}"`;
+}
+
+export function downloadCsv(
+	filename: string,
+	headers: readonly string[],
+	rows: string[][],
+	options: CsvOptions = {},
+): void {
+	const textColumns = new Set(options.textColumns ?? []);
+	const safeRows = rows.map((row) => row.map((value, index) => (
+		textColumns.has(index) ? asExcelText(value ?? '') : value ?? ''
+	)));
+	const content = '\uFEFF' + toCsv(headers, safeRows);
 	const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
