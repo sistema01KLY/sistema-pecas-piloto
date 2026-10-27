@@ -82,7 +82,10 @@ export default function SolicitacaoDetalhe() {
     })));
     const nome = epcFileName(request.numero) + '.csv';
     try {
-      downloadCsv(nome, EPC_COLUMNS, rows, { textColumns: [0, 1] });
+      // O sistema de destino espera os valores como texto puro no CSV.
+      // A fórmula `="..."` preservava zeros no Excel, mas fazia a coluna
+      // Referência ser interpretada como fórmula/conteúdo inválido na importação.
+      downloadCsv(nome, EPC_COLUMNS, rows);
       alert(`Arquivo "${nome}" gerado com sucesso!\n\nVerifique a pasta de downloads do seu navegador.`);
     } catch (e) {
       setErro(`Erro ao gerar arquivo: ${(e as Error).message}`);
