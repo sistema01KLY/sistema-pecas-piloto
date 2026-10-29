@@ -7,7 +7,8 @@ import { Alert, Button, Card, CardHeader, Empty, inputClass, Spinner } from '../
 import { StatusBadge } from '../components/StatusBadge';
 import { STATUS_LABEL, type RequestStatus } from '../lib/status';
 import { formatDateTime, formatNumber } from '../lib/format';
-import { buildErpRows, downloadCsv, ERP_COLUMNS, erpBatchFileName } from '../lib/fileLayouts';
+import { buildEpcRows, buildErpRows, downloadCsv, downloadXlsx, EPC_COLUMNS, epcFileName, ERP_COLUMNS, erpBatchFileName } from '../lib/fileLayouts';
+import { registrarHistorico } from '../lib/historico';
 import { useAuth } from '../hooks/useAuth';
 
 interface Linha {
@@ -29,6 +30,61 @@ export default function Solicitacoes() {
   const { isAdmin, user } = useAuth();
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   const [gerandoLote, setGerandoLote] = useState(false);
+
+  const gerarEpcEmLote = async () => {
+    if (!supabase || !isAdmin || !user || selecionadas.length === 0) return;
+    setGerandoLote(true);
+    setErro(null);
+    try {
+      const { data: items, error } = await supabase.from('request_items').select('*').in('request_id', selecionadas).order('created_at');
+      if (error) throw error;
+      const porSolicitacao = new Map<string, typeof items>();
+      for (const item of items ?? []) {
+        const atuais = porSolicitacao.get(item.request_id) ?? [];
+        atuais.push(item);
+        porSolicitacao.set(item.request_id, atuais);
+      }
+      const arquivosGerados: { request_id: string; nome: string; linhas: number }[] = [];
+      for (const requestId of selecionadas) {
+        const requestItems = porSolicitacao.get(requestId) ?? [];
+        if (requestItems.length === 0) throw new Error(`A solicitação selecionada não possui itens.`);
+        for (const item of requestItems) {
+          if (!item.ean13) throw new Error(`Item ${item.sku} não possui EAN13.`);
+          if (item.quantidade <= 0) throw new Error(`Item ${item.sku} possui quantidade inválida.`);
+        }
+        const request = linhas.find((linha) => linha.id === requestId);
+        if (!request) continue;
+        const rows = buildEpcRows(requestItems.map((item) => ({
+          referencia: item.referencia,
+          ean13: item.ean13,
+          nome: item.nome,
+          grupo: item.grupo,
+          cor: item.cor,
+          tamanho: item.tamanho,
+          preco: item.preco,
+          unidade: item.unidade,
+          quantidade: item.quantidade,
+        })));
+        const nome = `${epcFileName(request.numero)}_${selecionadas.indexOf(requestId) + 1}.xlsx`;
+        downloadXlsx(nome, EPC_COLUMNS, rows);
+        arquivosGerados.push({ request_id: requestId, nome, linhas: rows.length });
+      }
+      await supabase.from('request_files').insert(arquivosGerados.map((arquivo) => ({
+        request_id: arquivo.request_id,
+        usuario_id: user.id,
+        tipo: 'EPC',
+        nome_arquivo: arquivo.nome,
+        versao: 1,
+        total_linhas: arquivo.linhas,
+      })));
+      await Promise.all(arquivosGerados.map((arquivo) => registrarHistorico(arquivo.request_id, user.id, 'Arquivo EPC gerado', `Arquivo ${arquivo.nome} com ${arquivo.linhas} linha(s).`)));
+      alert(`${arquivosGerados.length} arquivo(s) EPC gerado(s) separadamente. Verifique a pasta de downloads do seu navegador.`);
+      setSelecionadas([]);
+    } catch (e) {
+      setErro(`Não foi possível gerar os arquivos EPC em lote: ${(e as Error).message}`);
+    }
+    setGerandoLote(false);
+  };
 
   const gerarErpEmLote = async () => {
     if (!supabase || !isAdmin || !user || selecionadas.length === 0) return;
@@ -90,14 +146,17 @@ export default function Solicitacoes() {
 			<Card>
 				<CardHeader
           titulo={`${visiveis.length} solicitação(ões)`}
-          descricao="Marque solicitações concluídas para gerar um único arquivo ERP."
+          descricao="Marque solicitações para gerar arquivos EPC separados ou um único arquivo ERP."
           acao={
             <div className="flex flex-wrap items-center gap-2">
               <select data-ev-id="ev_c3af9fee74" className={`${inputClass} w-56`} value={filtro} onChange={(e) => setFiltro(e.target.value)}>
                 <option value="TODOS">Todos os status</option>
                 {Object.entries(STATUS_LABEL).map(([valor, label]) => <option key={valor} value={valor}>{label}</option>)}
               </select>
-              {isAdmin ? <Button onClick={gerarErpEmLote} loading={gerandoLote} disabled={selecionadas.length === 0}><FileDown className="h-4 w-4" /> ERP em lote ({selecionadas.length})</Button> : null}
+              {isAdmin ? <>
+                <Button variant="outline" onClick={gerarEpcEmLote} loading={gerandoLote} disabled={selecionadas.length === 0}><FileDown className="h-4 w-4" /> EPC em lote ({selecionadas.length})</Button>
+                <Button onClick={gerarErpEmLote} loading={gerandoLote} disabled={selecionadas.length === 0}><FileDown className="h-4 w-4" /> ERP em lote ({selecionadas.length})</Button>
+              </> : null}
             </div>
           } />
 
