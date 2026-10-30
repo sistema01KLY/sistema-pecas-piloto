@@ -69,15 +69,6 @@ export default function Solicitacoes() {
         downloadXlsx(nome, EPC_COLUMNS, rows);
         arquivosGerados.push({ request_id: requestId, nome, linhas: rows.length });
       }
-      const { error: filesError } = await supabase.from('request_files').insert(arquivosGerados.map((arquivo) => ({
-        request_id: arquivo.request_id,
-        usuario_id: user.id,
-        tipo: 'EPC',
-        nome_arquivo: arquivo.nome,
-        versao: 1,
-        total_linhas: arquivo.linhas,
-      })));
-      if (filesError) throw filesError;
       const { error: statusError } = await supabase.from('requests').update({ status: 'CONCLUIDA' }).in('id', arquivosGerados.map((arquivo) => arquivo.request_id));
       if (statusError) throw statusError;
       await Promise.all(arquivosGerados.map((arquivo) => registrarHistorico(arquivo.request_id, user.id, 'Arquivo EPC gerado', `Arquivo ${arquivo.nome} com ${arquivo.linhas} linha(s).`)));
@@ -107,8 +98,8 @@ export default function Solicitacoes() {
       const rows = buildErpRows((epcs ?? []).map((epc) => ({ epc: epc.epc, sku: itemMap.get(epc.request_item_id)?.sku ?? '' })));
       const nome = erpBatchFileName() + '.csv';
       downloadCsv(nome, ERP_COLUMNS, rows);
-      await supabase.from('request_files').insert(selecionadas.map((request_id) => ({ request_id, usuario_id: user.id, tipo: 'ERP', nome_arquivo: nome, versao: 1, total_linhas: rows.length })));
-      await supabase.from('requests').update({ status: 'CONCLUIDA' }).in('id', selecionadas);
+      const { error: statusError } = await supabase.from('requests').update({ status: 'CONCLUIDA' }).in('id', selecionadas);
+      if (statusError) throw statusError;
       alert(`Arquivo "${nome}" gerado com ${rows.length} EPC(s).`);
       setSelecionadas([]);
     } catch (e) { setErro(`Não foi possível gerar o ERP em lote: ${(e as Error).message}`); }
