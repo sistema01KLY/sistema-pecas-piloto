@@ -69,7 +69,7 @@ export default function Solicitacoes() {
         downloadXlsx(nome, EPC_COLUMNS, rows);
         arquivosGerados.push({ request_id: requestId, nome, linhas: rows.length });
       }
-      await supabase.from('request_files').insert(arquivosGerados.map((arquivo) => ({
+      const { error: filesError } = await supabase.from('request_files').insert(arquivosGerados.map((arquivo) => ({
         request_id: arquivo.request_id,
         usuario_id: user.id,
         tipo: 'EPC',
@@ -77,6 +77,9 @@ export default function Solicitacoes() {
         versao: 1,
         total_linhas: arquivo.linhas,
       })));
+      if (filesError) throw filesError;
+      const { error: statusError } = await supabase.from('requests').update({ status: 'CONCLUIDA' }).in('id', arquivosGerados.map((arquivo) => arquivo.request_id));
+      if (statusError) throw statusError;
       await Promise.all(arquivosGerados.map((arquivo) => registrarHistorico(arquivo.request_id, user.id, 'Arquivo EPC gerado', `Arquivo ${arquivo.nome} com ${arquivo.linhas} linha(s).`)));
       alert(`${arquivosGerados.length} arquivo(s) EPC gerado(s) separadamente. Verifique a pasta de downloads do seu navegador.`);
       setSelecionadas([]);
