@@ -172,7 +172,8 @@ export default function Solicitacoes() {
                   <th data-ev-id="ev_6d85fceba5" className="px-4 py-2">Data</th>
                   <th data-ev-id="ev_e73c7af529" className="px-4 py-2">Solicitante</th>
                   <th data-ev-id="ev_9a82637d82" className="px-4 py-2">Itens</th>
-                  <th data-ev-id="ev_ad958f9c9f" className="px-4 py-2">Quantidade</th>
+                  <th className="px-4 py-2">Produtos solicitados</th>
+                  <th data-ev-id="ev_ad958f9c9f" className="px-4 py-2">Quantidade total</th>
                   <th data-ev-id="ev_e52170fe86" className="px-4 py-2">Status</th>
                   <th data-ev-id="ev_3a5d48829d" className="px-4 py-2">Última atualização</th>
                 </tr>
@@ -188,6 +189,15 @@ export default function Solicitacoes() {
                       <td data-ev-id="ev_9534195ab0" className="px-4 py-2">{formatDateTime(l.created_at)}</td>
                       <td data-ev-id="ev_c7d184847e" className="px-4 py-2">{nomes[l.usuario_id] ?? '-'}</td>
                       <td data-ev-id="ev_4fd31c7f4e" className="px-4 py-2">{itens.length}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex max-w-md flex-wrap gap-1.5">
+                          {itens.map((item, index) => (
+                            <span key={`${l.id}-${item.referencia ?? 'item'}-${index}`} className="rounded-md bg-muted px-2 py-1 text-xs">
+                              {item.referencia || 'Sem referência'}: {formatNumber(item.quantidade)}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td data-ev-id="ev_75d16a7e1d" className="px-4 py-2">{formatNumber(tags)}</td>
                       <td data-ev-id="ev_5fa46cfd4a" className="px-4 py-2"><StatusBadge status={l.status} /></td>
                       <td data-ev-id="ev_70c6fae888" className="px-4 py-2">{formatDateTime(l.updated_at)}</td>
