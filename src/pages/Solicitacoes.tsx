@@ -18,13 +18,14 @@ interface Linha {
   usuario_id: string;
   created_at: string;
   updated_at: string;
-  request_items: {quantidade: number;}[];
+  request_items: { quantidade: number; referencia: string | null }[];
 }
 
 export default function Solicitacoes() {
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [nomes, setNomes] = useState<Record<string, string>>({});
   const [filtro, setFiltro] = useState<string>('TODOS');
+  const [buscaReferencia, setBuscaReferencia] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const { isAdmin, user } = useAuth();
@@ -111,7 +112,7 @@ export default function Solicitacoes() {
       if (!supabase) return;
       const { data, error } = await supabase.
       from('requests').
-      select('id, numero, status, usuario_id, created_at, updated_at, request_items(quantidade)').
+      select('id, numero, status, usuario_id, created_at, updated_at, request_items(quantidade, referencia)').
       order('created_at', { ascending: false });
       if (error) setErro(error.message);
       const lista = data as Linha[] | null ?? [];
@@ -129,7 +130,12 @@ export default function Solicitacoes() {
     void carregar();
   }, []);
 
-  const visiveis = filtro === 'TODOS' ? linhas : linhas.filter((l) => l.status === filtro);
+  const termoReferencia = buscaReferencia.trim().toLowerCase();
+  const visiveis = linhas.filter((linha) => {
+    const correspondeStatus = filtro === 'TODOS' || linha.status === filtro;
+    const correspondeReferencia = !termoReferencia || linha.request_items.some((item) => (item.referencia ?? '').toLowerCase().includes(termoReferencia));
+    return correspondeStatus && correspondeReferencia;
+  });
 
   return (
     <div data-ev-id="ev_57ec2eaefc" className="flex flex-col gap-4">
@@ -143,6 +149,8 @@ export default function Solicitacoes() {
           descricao="Marque solicitações para gerar arquivos EPC separados ou um único arquivo ERP."
           acao={
             <div className="flex flex-wrap items-center gap-2">
+              <label className="sr-only" htmlFor="busca-referencia">Buscar por referência</label>
+              <input id="busca-referencia" className={`${inputClass} w-64`} value={buscaReferencia} onChange={(e) => setBuscaReferencia(e.target.value)} placeholder="Buscar por referência" />
               <select data-ev-id="ev_c3af9fee74" className={`${inputClass} w-56`} value={filtro} onChange={(e) => setFiltro(e.target.value)}>
                 <option value="TODOS">Todos os status</option>
                 {Object.entries(STATUS_LABEL).map(([valor, label]) => <option key={valor} value={valor}>{label}</option>)}
