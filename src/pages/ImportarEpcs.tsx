@@ -122,6 +122,29 @@ export default function ImportarEpcs() {
       tamanhos: l.tamanhos || null,
       situacao: l.situacao || null
     }));
+    const epcsDoArquivo = registros.map((registro) => registro.epc);
+    const duplicadosNoArquivo = epcsDoArquivo.filter((epc, index) => epcsDoArquivo.indexOf(epc) !== index);
+    const { data: epcsExistentes, error: consultaErro } = await supabase
+      .from('epcs')
+      .select('epc')
+      .in('epc', epcsDoArquivo);
+
+    if (consultaErro) {
+      setErros([`Não foi possível verificar EPCs já importados: ${consultaErro.message}`]);
+      setImportando(false);
+      return;
+    }
+
+    const duplicadosNoBanco = (epcsExistentes ?? []).map((registro) => registro.epc);
+    const duplicados = [...new Set([...duplicadosNoArquivo, ...duplicadosNoBanco])];
+    if (duplicados.length > 0) {
+      setErros([
+        `A importação está bloqueada porque ${duplicados.length} EPC(s) já existem ou estão repetidos no arquivo: ${duplicados.join(', ')}.`,
+      ]);
+      setImportando(false);
+      return;
+    }
+
     const { error } = await supabase.from('epcs').insert(registros);
     if (error) {
       setErros([`Erro ao inserir EPCs: ${error.message}`]);
