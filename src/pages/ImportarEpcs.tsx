@@ -123,11 +123,20 @@ export default function ImportarEpcs() {
       situacao: l.situacao || null
     }));
     const epcsDoArquivo = registros.map((registro) => registro.epc);
-    const duplicadosNoArquivo = epcsDoArquivo.filter((epc, index) => epcsDoArquivo.indexOf(epc) !== index);
+    const normalizarEpc = (epc: string) => epc.trim().toLocaleLowerCase();
+    const gruposNoArquivo = new Map<string, string[]>();
+    epcsDoArquivo.forEach((epc) => {
+      const chave = normalizarEpc(epc);
+      gruposNoArquivo.set(chave, [...(gruposNoArquivo.get(chave) ?? []), epc]);
+    });
+    const duplicadosNoArquivo = [...gruposNoArquivo.values()]
+      .filter((grupo) => grupo.length > 1)
+      .flat();
+
     const { data: epcsExistentes, error: consultaErro } = await supabase
       .from('epcs')
       .select('epc')
-      .in('epc', epcsDoArquivo);
+      .limit(10000);
 
     if (consultaErro) {
       setErros([`Não foi possível verificar EPCs já importados: ${consultaErro.message}`]);
@@ -135,7 +144,12 @@ export default function ImportarEpcs() {
       return;
     }
 
-    const duplicadosNoBanco = (epcsExistentes ?? []).map((registro) => registro.epc);
+    const epcsNoBanco = new Map(
+      (epcsExistentes ?? []).map((registro) => [normalizarEpc(registro.epc), registro.epc]),
+    );
+    const duplicadosNoBanco = epcsDoArquivo
+      .filter((epc) => epcsNoBanco.has(normalizarEpc(epc)))
+      .map((epc) => epcsNoBanco.get(normalizarEpc(epc)) ?? epc);
     const duplicados = [...new Set([...duplicadosNoArquivo, ...duplicadosNoBanco])];
     if (duplicados.length > 0) {
       setErros([
