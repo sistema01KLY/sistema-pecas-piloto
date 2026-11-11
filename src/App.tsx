@@ -17,10 +17,13 @@ import BaseProdutos from './pages/BaseProdutos';
 import ImportarProdutos from './pages/ImportarProdutos';
 import ImportarEpcs from './pages/ImportarEpcs';
 import Historico from './pages/Historico';
+import AdminRequestNotifications from './components/AdminRequestNotifications';
 
 export default function App() {
 	return (
-		<Routes>
+		<>
+			<AdminRequestNotifications />
+			<Routes>
 			<Route path="/" element={<Index />} />
 			<Route path="/login" element={<Login />} />
 			<Route path="/auth/callback" element={<AuthCallback />} />
@@ -88,14 +91,16 @@ export default function App() {
 					</ProtectedRoute>
 				}
 			/>
-			<Route
-				path="/historico"
-				element={
-					<ProtectedRoute somenteAdmin>
-						<Historico />
-					</ProtectedRoute>
-				}
-			/>
-		</Routes>
+				<Route
+					path="/historico"
+					element={
+						<ProtectedRoute somenteAdmin>
+							<Historico />
+						</ProtectedRoute>
+					}
+				/>
+			</Routes>
+		</>
 	);
+
 }
