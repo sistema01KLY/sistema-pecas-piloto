@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { ArrowLeft, FileSpreadsheet, Upload } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -173,6 +173,16 @@ export default function ImportarEpcs() {
   };
 
   const solsSelecionadas = solicitacoes.filter((s) => selecionadas.includes(s.id));
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const quantidadeSelecionadasVisiveis = solicitacoes.filter((solicitacao) => selecionadas.includes(solicitacao.id)).length;
+  const todasSelecionadas = solicitacoes.length > 0 && quantidadeSelecionadasVisiveis === solicitacoes.length;
+  const algumasSelecionadas = quantidadeSelecionadasVisiveis > 0 && !todasSelecionadas;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = algumasSelecionadas;
+    }
+  }, [algumasSelecionadas]);
 
   return (
     <div data-ev-id="ev_91e4fdfce7" className="flex flex-col gap-4">
@@ -192,12 +202,29 @@ export default function ImportarEpcs() {
 				<CardHeader titulo="1. Selecionar solicitações" descricao="Selecione uma ou várias solicitações para importar os EPCs em lote." />
 				<div data-ev-id="ev_27b9e3baf2" className="px-5 py-4">
 					{carregando ? <Spinner /> :
-          <div className="grid max-h-64 gap-2 overflow-y-auto md:grid-cols-2">
-            {solicitacoes.map((s) => <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50">
-              <input type="checkbox" checked={selecionadas.includes(s.id)} onChange={(e) => {setSelecionadas((atual) => e.target.checked ? [...atual, s.id] : atual.filter((id) => id !== s.id)); limpar();}} />
-              <span className="flex-1">{s.numero}</span><StatusBadge status={s.status} />
-            </label>)}
-          </div>
+          <>
+            <label className="mb-3 flex cursor-pointer items-center gap-2 px-1 text-sm font-medium text-foreground">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                className="h-4 w-4 accent-primary"
+                checked={todasSelecionadas}
+                disabled={solicitacoes.length === 0}
+                aria-label="Selecionar todas as solicitações listadas"
+                onChange={(event) => {
+                  setSelecionadas(event.target.checked ? solicitacoes.map((solicitacao) => solicitacao.id) : []);
+                  limpar();
+                }}
+              />
+              <span>Selecionar todas as solicitações ({solicitacoes.length})</span>
+            </label>
+            <div className="grid max-h-64 gap-2 overflow-y-auto md:grid-cols-2">
+              {solicitacoes.map((s) => <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50">
+                <input type="checkbox" checked={selecionadas.includes(s.id)} onChange={(e) => {setSelecionadas((atual) => e.target.checked ? [...atual, s.id] : atual.filter((id) => id !== s.id)); limpar();}} />
+                <span className="flex-1">{s.numero}</span><StatusBadge status={s.status} />
+              </label>)}
+            </div>
+          </>
           }
           <div className="mt-3 flex items-center gap-3 text-sm text-muted-foreground">
             <span>{selecionadas.length} solicitação(ões) selecionada(s)</span><span>{itens.length} item(ns)</span>
