@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { FileDown } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';
@@ -136,6 +136,22 @@ export default function Solicitacoes() {
     const correspondeReferencia = !termoReferencia || linha.request_items.some((item) => (item.referencia ?? '').toLowerCase().includes(termoReferencia));
     return correspondeStatus && correspondeReferencia;
   });
+  const selecionadasVisiveis = visiveis.filter((linha) => selecionadas.includes(linha.id)).length;
+  const selecionarTodasRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (selecionarTodasRef.current) {
+      selecionarTodasRef.current.indeterminate = selecionadasVisiveis > 0 && selecionadasVisiveis < visiveis.length;
+    }
+  }, [selecionadasVisiveis, visiveis.length]);
+
+  const selecionarTodasVisiveis = () => {
+    const idsVisiveis = visiveis.map((linha) => linha.id);
+    const todasSelecionadas = idsVisiveis.length > 0 && idsVisiveis.every((id) => selecionadas.includes(id));
+    setSelecionadas((atuais) => todasSelecionadas
+      ? atuais.filter((id) => !idsVisiveis.includes(id))
+      : Array.from(new Set([...atuais, ...idsVisiveis])));
+  };
 
   return (
     <div data-ev-id="ev_57ec2eaefc" className="flex flex-col gap-4">
@@ -167,7 +183,20 @@ export default function Solicitacoes() {
             <table data-ev-id="ev_7194752a2c" className="w-full text-sm">
               <thead data-ev-id="ev_6c5bc683c2" className="bg-muted text-left text-xs uppercase text-muted-foreground">
                 <tr data-ev-id="ev_556f611187">
-                  <th className="px-4 py-2">Lote</th>
+                  <th className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={selecionarTodasRef}
+                        type="checkbox"
+                        checked={visiveis.length > 0 && selecionadasVisiveis === visiveis.length}
+                        onChange={selecionarTodasVisiveis}
+                        disabled={visiveis.length === 0}
+                        aria-label="Selecionar todas as solicitações visíveis"
+                        title="Selecionar todas as solicitações visíveis"
+                      />
+                      <span>Lote</span>
+                    </div>
+                  </th>
                   <th data-ev-id="ev_2df4063b10" className="px-4 py-2">Número</th>
                   <th data-ev-id="ev_6d85fceba5" className="px-4 py-2">Data</th>
                   <th data-ev-id="ev_e73c7af529" className="px-4 py-2">Solicitante</th>
