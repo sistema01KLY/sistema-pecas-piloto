@@ -12,7 +12,6 @@ interface NavItem {
 export default function Layout({ children }: {children: ReactNode;}) {
   const { perfil, isAdmin, sair } = useAuth();
   const navigate = useNavigate();
-
   const itensSolicitante: NavItem[] = [
   { to: '/nova-solicitacao', label: 'Nova Solicitação', icon: <PlusCircle className="h-4 w-4" /> },
   { to: '/minhas-solicitacoes', label: 'Minhas Solicitações', icon: <ScrollText className="h-4 w-4" /> }];
