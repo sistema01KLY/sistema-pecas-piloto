@@ -72,9 +72,24 @@ export function validarRetornoEpcs(
 		);
 	}
 
-	// Vincula cada registro ao item solicitado pelo EAN13
-	// e valida os demais campos
+	// Cada solicitação pode conter uma linha separada para o mesmo produto.
+	// Agrupamos os itens por atributos do produto para validar o total em lote.
+	const chaveProduto = (item: RequestItem) =>
+		[
+			norm(item.sku),
+			norm(item.referencia),
+			norm(item.cor),
+			norm(item.tamanho),
+		].join('|');
+	const itensPorProduto = new Map<string, RequestItem[]>();
+	for (const item of itens) {
+		const chave = chaveProduto(item);
+		itensPorProduto.set(chave, [...(itensPorProduto.get(chave) ?? []), item]);
+	}
+
+	// Valida os campos e identifica o produto correspondente a cada EPC.
 	const contagem = new Map<string, number>();
+	const linhasPorProduto = new Map<string, IprintRow[]>();
 
 	for (const l of linhas) {
 		if (!l.ean13) {
@@ -108,73 +123,71 @@ export function validarRetornoEpcs(
 			);
 		}
 
-		const item = itens.find(
+		const candidatos = itens.filter(
 			(i) => norm(i.ean13) === norm(l.ean13),
 		);
 
-		if (!item) {
+		if (candidatos.length === 0) {
 			erros.push(
-				`ERRO: EPC ${l.epc || `linha ${l.linha}`} possui EAN13 ${l.ean13}, que não pertence a nenhum item desta solicitação.`,
+				`ERRO: EPC ${l.epc || `linha ${l.linha}`} possui EAN13 ${l.ean13}, que não pertence a nenhum item das solicitações selecionadas.`,
 			);
 			continue;
 		}
 
-		if (norm(item.referencia) !== norm(l.referencia)) {
-			erros.push(
-				`ERRO: EPC ${l.epc} pertence à referência ${l.referencia}, mas a solicitação esperava a referência ${item.referencia}.`,
-			);
-			continue;
-		}
-
-		if (
-			item.cor &&
-			l.cor &&
-			norm(item.cor) !== norm(l.cor)
-		) {
-			erros.push(
-				`ERRO: EPC ${l.epc} possui cor ${l.cor}, mas a solicitação esperava a cor ${item.cor}.`,
-			);
-			continue;
-		}
-
-		if (
-			item.tamanho &&
-			l.tamanho &&
-			norm(item.tamanho) !== norm(l.tamanho)
-		) {
-			erros.push(
-				`ERRO: EPC ${l.epc} possui tamanho ${l.tamanho}, mas a solicitação esperava o tamanho ${item.tamanho}.`,
-			);
-			continue;
-		}
-
-		if (l.epc) {
-			vinculos.set(l.epc, item.id);
-		}
-
-		contagem.set(
-			item.id,
-			(contagem.get(item.id) ?? 0) + 1,
+		const item = candidatos.find((i) =>
+			norm(i.referencia) === norm(l.referencia) &&
+			(!i.cor || !l.cor || norm(i.cor) === norm(l.cor)) &&
+			(!i.tamanho || !l.tamanho || norm(i.tamanho) === norm(l.tamanho)),
 		);
+
+		if (!item) {
+			const referenciaEsperada = candidatos[0].referencia;
+			erros.push(
+				`ERRO: EPC ${l.epc} possui referência ${l.referencia}, mas a solicitação esperava ${referenciaEsperada}.`,
+			);
+			continue;
+		}
+
+		const chave = chaveProduto(item);
+		linhasPorProduto.set(chave, [...(linhasPorProduto.get(chave) ?? []), l]);
+		contagem.set(chave, (contagem.get(chave) ?? 0) + 1);
 	}
 
-	// Validação de quantidade:
-	// solicitado deve ser exatamente igual ao recebido
-	const resumoPorItem = itens.map((item) => {
-		const recebido = contagem.get(item.id) ?? 0;
-		const ok = recebido === item.quantidade;
-
+	// Compara a quantidade total recebida com o total solicitado em todas
+	// as solicitações selecionadas para cada produto.
+	const recebidoPorItem = new Map<string, number>();
+	for (const [chave, grupo] of itensPorProduto) {
+		const solicitado = grupo.reduce((total, item) => total + item.quantidade, 0);
+		const recebido = contagem.get(chave) ?? 0;
+		const ok = recebido === solicitado;
 		if (!ok) {
+			const produto = grupo[0];
 			erros.push(
-				`ERRO: Divergência de quantidade no SKU ${item.sku} (ref. ${item.referencia}). Solicitado: ${item.quantidade} / Recebido: ${recebido}.`,
+				`ERRO: Divergência de quantidade no SKU ${produto.sku} (ref. ${produto.referencia}). Solicitado no total: ${solicitado} / Recebido: ${recebido}.`,
 			);
 		}
 
+		// Distribui os EPCs pelas linhas individuais das solicitações, respeitando
+		// a quantidade pedida em cada uma delas para manter os vínculos corretos.
+		let indiceLinha = 0;
+		for (const item of grupo) {
+			let atribuidos = 0;
+			while (indiceLinha < (linhasPorProduto.get(chave)?.length ?? 0) && atribuidos < item.quantidade) {
+				const linha = linhasPorProduto.get(chave)![indiceLinha++];
+				if (linha.epc) vinculos.set(linha.epc, item.id);
+				atribuidos += 1;
+			}
+			recebidoPorItem.set(item.id, atribuidos);
+		}
+	}
+
+	const resumoPorItem = itens.map((item) => {
+		const recebido = recebidoPorItem.get(item.id) ?? 0;
 		return {
 			item,
 			solicitado: item.quantidade,
 			recebido,
-			ok,
+			ok: recebido === item.quantidade,
 		};
 	});
 
