@@ -33,6 +33,7 @@ export default function ImportarEpcs() {
   const [avisos, setAvisos] = useState<string[]>([]);
   const [sucesso, setSucesso] = useState<string | null>(null);
   const [analisado, setAnalisado] = useState(false);
+  const [importacaoConcluida, setImportacaoConcluida] = useState(false);
   const [vinculos, setVinculos] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -63,6 +64,7 @@ export default function ImportarEpcs() {
     setErros([]);
     setAvisos([]);
     setAnalisado(false);
+    setImportacaoConcluida(false);
     setSucesso(null);
     setVinculos(new Map());
   };
@@ -108,68 +110,169 @@ export default function ImportarEpcs() {
   };
 
   const confirmar = async () => {
-    if (!supabase || !user || erros.length > 0 || vinculos.size === 0) return;
-    const confirmado = window.confirm(`Confirma a importação de ${vinculos.size} EPC(s)?`);
-    if (!confirmado) return;
-    setImportando(true);
-    const registros = linhas.filter((l) => vinculos.has(l.epc)).map((l) => ({
-      request_item_id: vinculos.get(l.epc)!,
-      ean13: l.ean13 || null,
-      epc: l.epc,
-      descricao: l.descricao || null,
-      cor: l.cor || null,
-      tamanho: l.tamanho || null,
-      tamanhos: l.tamanhos || null,
-      situacao: l.situacao || null
-    }));
-    const epcsDoArquivo = registros.map((registro) => registro.epc);
-    const normalizarEpc = (epc: string) => epc.trim().toLocaleLowerCase();
-    const gruposNoArquivo = new Map<string, string[]>();
-    epcsDoArquivo.forEach((epc) => {
-      const chave = normalizarEpc(epc);
-      gruposNoArquivo.set(chave, [...(gruposNoArquivo.get(chave) ?? []), epc]);
-    });
-    const duplicadosNoArquivo = [...gruposNoArquivo.values()]
-      .filter((grupo) => grupo.length > 1)
-      .flat();
+    if (!supabase || !user || vinculos.size === 0 || importacaoConcluida) return;
+    const client = supabase;
 
-    const { data: epcsExistentes, error: consultaErro } = await supabase
-      .from('epcs')
-      .select('epc')
-      .limit(10000);
+    const registrosValidados = linhas
+      .filter((linha) => Boolean(linha.epc) && vinculos.has(linha.epc))
+      .map((linha) => ({
+        request_item_id: vinculos.get(linha.epc)!,
+        ean13: linha.ean13 || null,
+        epc: linha.epc,
+        descricao: linha.descricao || null,
+        cor: linha.cor || null,
+        tamanho: linha.tamanho || null,
+        tamanhos: linha.tamanhos || null,
+        situacao: linha.situacao || null,
+      }));
 
-    if (consultaErro) {
-      setErros([`Não foi possível verificar EPCs já importados: ${consultaErro.message}`]);
-      setImportando(false);
-      return;
-    }
+    if (registrosValidados.length === 0) return;
 
-    const epcsNoBanco = new Map(
-      (epcsExistentes ?? []).map((registro) => [normalizarEpc(registro.epc), registro.epc]),
+    const linhasIgnoradas = linhas.length - registrosValidados.length;
+    const confirmado = window.confirm(
+      `Serão importados ${registrosValidados.length} EPC(s) válido(s). ${linhasIgnoradas} linha(s) com erro ou sem vínculo serão ignoradas. Deseja continuar?`,
     );
-    const duplicadosNoBanco = epcsDoArquivo
-      .filter((epc) => epcsNoBanco.has(normalizarEpc(epc)))
-      .map((epc) => epcsNoBanco.get(normalizarEpc(epc)) ?? epc);
-    const duplicados = [...new Set([...duplicadosNoArquivo, ...duplicadosNoBanco])];
-    if (duplicados.length > 0) {
-      setErros([
-        `A importação está bloqueada porque ${duplicados.length} EPC(s) já existem ou estão repetidos no arquivo: ${duplicados.join(', ')}.`,
+    if (!confirmado) return;
+
+    setImportando(true);
+    const normalizarEpc = (epc: string) => epc.trim().toLocaleUpperCase();
+    const epcsNoBanco = new Set<string>();
+
+    for (let indice = 0; indice < registrosValidados.length; indice += 500) {
+      const lote = registrosValidados.slice(indice, indice + 500).map((registro) => registro.epc);
+      const { data: existentes, error: consultaErro } = await supabase
+        .from('epcs')
+        .select('epc')
+        .in('epc', lote);
+
+      if (consultaErro) {
+        setErros((atuais) => [...atuais, `Não foi possível verificar EPCs já importados: ${consultaErro.message}`]);
+        setImportando(false);
+        return;
+      }
+
+      (existentes ?? []).forEach((registro) => epcsNoBanco.add(normalizarEpc(registro.epc)));
+    }
+
+    const registrosNovos = registrosValidados.filter(
+      (registro) => !epcsNoBanco.has(normalizarEpc(registro.epc)),
+    );
+    const duplicadosNoBanco = registrosValidados.length - registrosNovos.length;
+
+    if (duplicadosNoBanco > 0) {
+      setErros((atuais) => [
+        ...atuais,
+        `${duplicadosNoBanco} EPC(s) já cadastrado(s) foram ignorados.`,
       ]);
+    }
+
+    if (registrosNovos.length === 0) {
+      setErros((atuais) => [
+        ...atuais,
+        'Nenhum EPC novo para importar; os EPCs válidos já estão cadastrados.',
+      ]);
+      setImportacaoConcluida(true);
       setImportando(false);
       return;
     }
 
-    const { error } = await supabase.from('epcs').insert(registros);
-    if (error) {
-      setErros([`Erro ao inserir EPCs: ${error.message}`]);
+    const { error: erroInsercao } = await supabase.from('epcs').insert(registrosNovos);
+    if (erroInsercao) {
+      setErros((atuais) => [...atuais, `Erro ao inserir EPCs: ${erroInsercao.message}`]);
       setImportando(false);
       return;
     }
-    await supabase.from('requests').update({ status: 'EPCS_RECEBIDOS' }).in('id', selecionadas);
-    await Promise.all(selecionadas.map((requestId) => registrarHistorico(requestId, user.id, 'EPCs importados', `${registros.length} EPC(s) importado(s) em lote.`)));
+
+    const contagensPorItem = new Map<string, number>();
+    let erroConsultaStatus = false;
+
+    for (let indice = 0; indice < itens.length; indice += 20) {
+      const loteItens = itens.slice(indice, indice + 20);
+      const resultados = await Promise.all(loteItens.map(async (item) => {
+        const { count, error: erroContagem } = await client
+          .from('epcs')
+          .select('epc', { count: 'exact', head: true })
+          .eq('request_item_id', item.id);
+        return { itemId: item.id, count, error: erroContagem };
+      }));
+
+      resultados.forEach((resultado) => {
+        if (resultado.error) {
+          erroConsultaStatus = true;
+        } else {
+          contagensPorItem.set(resultado.itemId, resultado.count ?? 0);
+        }
+      });
+    }
+
+    const statusPorSolicitacao = new Map<string, 'EPCS_RECEBIDOS' | 'EM_PROCESSAMENTO'>();
+    const avisosStatus: string[] = [];
+
+    if (erroConsultaStatus) {
+      avisosStatus.push('Os EPCs foram importados, mas não foi possível conferir todos os quantitativos para atualizar os status.');
+    } else {
+      selecionadas.forEach((requestId) => {
+        const itensDaSolicitacao = itens.filter((item) => item.request_id === requestId);
+        if (itensDaSolicitacao.length === 0) return;
+
+        const todosRecebidos = itensDaSolicitacao.every(
+          (item) => (contagensPorItem.get(item.id) ?? 0) >= item.quantidade,
+        );
+        statusPorSolicitacao.set(
+          requestId,
+          todosRecebidos ? 'EPCS_RECEBIDOS' : 'EM_PROCESSAMENTO',
+        );
+      });
+
+      for (const status of ['EPCS_RECEBIDOS', 'EM_PROCESSAMENTO'] as const) {
+        const ids = [...statusPorSolicitacao.entries()]
+          .filter(([, statusSolicitacao]) => statusSolicitacao === status)
+          .map(([requestId]) => requestId);
+        if (ids.length === 0) continue;
+
+        const { error: erroAtualizacao } = await supabase
+          .from('requests')
+          .update({ status })
+          .in('id', ids);
+        if (erroAtualizacao) {
+          avisosStatus.push(`Não foi possível atualizar o status para ${status}: ${erroAtualizacao.message}`);
+        }
+      }
+    }
+
+    const solicitacaoPorItem = new Map(itens.map((item) => [item.id, item.request_id]));
+    const importadosPorSolicitacao = new Map<string, number>();
+    registrosNovos.forEach((registro) => {
+      const requestId = solicitacaoPorItem.get(registro.request_item_id);
+      if (requestId) {
+        importadosPorSolicitacao.set(
+          requestId,
+          (importadosPorSolicitacao.get(requestId) ?? 0) + 1,
+        );
+      }
+    });
+
+    await Promise.all(
+      [...importadosPorSolicitacao.entries()].map(([requestId, quantidade]) =>
+        registrarHistorico(
+          requestId,
+          user.id,
+          'EPCs importados',
+          `${quantidade} EPC(s) válido(s) importado(s) em lote.`,
+        ),
+      ),
+    );
+
+    if (avisosStatus.length > 0) {
+      setAvisos((atuais) => [...atuais, ...avisosStatus]);
+    }
+
+    const linhasNaoImportadas = linhas.length - registrosNovos.length;
+    setImportacaoConcluida(true);
     setImportando(false);
-    setSucesso(`Importação em lote concluída. ${registros.length} EPC(s) vinculados a ${selecionadas.length} solicitação(ões).`);
-    limpar();
+    setSucesso(
+      `Importação concluída: ${registrosNovos.length} EPC(s) importado(s). ${linhasNaoImportadas} linha(s) com erro, sem vínculo ou já cadastradas foram ignoradas.`,
+    );
   };
 
   const solsSelecionadas = solicitacoes.filter((s) => selecionadas.includes(s.id));
@@ -257,8 +360,14 @@ export default function ImportarEpcs() {
 							<Resumo titulo="Avisos" valor={avisos.length} cor={avisos.length > 0 ? 'text-amber-700' : undefined} />
 						</div>
 
-						{erros.length > 0 ?
-          <Alert tipo="erro" titulo="A importação está bloqueada">
+							{erros.length > 0 ?
+          <Alert
+            tipo="erro"
+            titulo={vinculos.size > 0 ? 'Foram encontradas linhas inválidas' : 'Não há EPCs válidos para importar'}
+          >
+            {vinculos.size > 0 && !importacaoConcluida ?
+              <p className="mb-2">Você pode importar os {vinculos.size} EPC(s) válidos; as linhas abaixo serão ignoradas.</p> :
+              null}
 								<ul data-ev-id="ev_c43a205cac" className="list-inside list-disc">
 									{erros.slice(0, 30).map((e, i) => <li data-ev-id="ev_a70d4dc926" key={i}>{e}</li>)}
 									{erros.length > 30 ? <li data-ev-id="ev_3e6616d6b9">...e mais {erros.length - 30} erro(s).</li> : null}
@@ -281,9 +390,9 @@ export default function ImportarEpcs() {
 
 					<div data-ev-id="ev_49eb1261f8" className="flex flex-row justify-end gap-2 border-t border-border px-5 py-4">
 						<Button variant="outline" onClick={limpar}>Cancelar</Button>
-						<Button onClick={confirmar} disabled={erros.length > 0 || vinculos.size === 0} loading={importando}>
-							<Upload className="h-4 w-4" /> Confirmar importação
-						</Button>
+							<Button onClick={confirmar} disabled={vinculos.size === 0 || importacaoConcluida} loading={importando}>
+								<Upload className="h-4 w-4" /> {importacaoConcluida ? 'Importação concluída' : erros.length > 0 ? 'Importar EPCs válidos' : 'Confirmar importação'}
+							</Button>
 					</div>
 				</Card> :
       null}

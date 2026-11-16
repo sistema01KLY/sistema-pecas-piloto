@@ -33,7 +33,7 @@ function norm(value: string | null | undefined): string {
 
 /**
  * Compara o retorno do sistema externo com a solicitação original.
- * Regra fundamental: qualquer divergência bloqueia a geração do arquivo ERP.
+ * Apenas linhas válidas recebem vínculo para importação; erros ficam detalhados para revisão.
  */
 export function validarRetornoEpcs(
 	itens: RequestItem[],
@@ -59,10 +59,11 @@ export function validarRetornoEpcs(
 			continue;
 		}
 
-		if (vistos.has(l.epc)) {
-			duplicados.add(l.epc);
+		const chaveEpc = norm(l.epc);
+		if (vistos.has(chaveEpc)) {
+			duplicados.add(chaveEpc);
 		} else {
-			vistos.set(l.epc, l.linha);
+			vistos.set(chaveEpc, l.linha);
 		}
 	}
 
@@ -72,8 +73,7 @@ export function validarRetornoEpcs(
 		);
 	}
 
-	// Cada solicitação pode conter uma linha separada para o mesmo produto.
-	// Agrupamos os itens por atributos do produto para validar o total em lote.
+	// Agrupa os itens por produto para validar o total solicitado entre várias solicitações.
 	const chaveProduto = (item: RequestItem) =>
 		[
 			norm(item.sku),
@@ -87,60 +87,52 @@ export function validarRetornoEpcs(
 		itensPorProduto.set(chave, [...(itensPorProduto.get(chave) ?? []), item]);
 	}
 
-	// Valida os campos e identifica o produto correspondente a cada EPC.
-	const contagem = new Map<string, number>();
-	const linhasPorProduto = new Map<string, IprintRow[]>();
+	const quantidadeRestantePorItem = new Map(
+		itens.map((item) => [item.id, item.quantidade]),
+	);
+	const recebidoPorProduto = new Map<string, number>();
+	const recebidoPorItem = new Map<string, number>();
 
 	for (const l of linhas) {
+		if (!l.epc || duplicados.has(norm(l.epc))) continue;
+
 		if (!l.ean13) {
 			erros.push(
-				`ERRO: EAN13 vazio na linha ${l.linha} (EPC ${l.epc || 'vazio'}).`,
+				`ERRO: EAN13 vazio na linha ${l.linha} (EPC ${l.epc}).`,
 			);
 			continue;
-		}
-
-		if (!l.referencia) {
-			erros.push(
-				`ERRO: Referência vazia na linha ${l.linha} (EPC ${l.epc || 'vazio'}).`,
-			);
 		}
 
 		if (!l.descricao) {
-			avisos.push(
-				`Atenção: Descrição vazia na linha ${l.linha}.`,
-			);
+			avisos.push(`Atenção: Descrição vazia na linha ${l.linha}.`);
 		}
 
+		if (!l.referencia) {
+			erros.push(`ERRO: Referência vazia na linha ${l.linha} (EPC ${l.epc}).`);
+		}
 		if (!l.cor) {
-			erros.push(
-				`ERRO: Cor vazia na linha ${l.linha} (EPC ${l.epc || 'vazio'}).`,
-			);
+			erros.push(`ERRO: Cor vazia na linha ${l.linha} (EPC ${l.epc}).`);
 		}
-
 		if (!l.tamanho) {
-			erros.push(
-				`ERRO: Tamanho vazio na linha ${l.linha} (EPC ${l.epc || 'vazio'}).`,
-			);
+			erros.push(`ERRO: Tamanho vazio na linha ${l.linha} (EPC ${l.epc}).`);
 		}
+		if (!l.referencia || !l.cor || !l.tamanho) continue;
 
-		const candidatos = itens.filter(
-			(i) => norm(i.ean13) === norm(l.ean13),
-		);
-
+		const candidatos = itens.filter((item) => norm(item.ean13) === norm(l.ean13));
 		if (candidatos.length === 0) {
 			erros.push(
-				`ERRO: EPC ${l.epc || `linha ${l.linha}`} possui EAN13 ${l.ean13}, que não pertence a nenhum item das solicitações selecionadas.`,
+				`ERRO: EPC ${l.epc} possui EAN13 ${l.ean13}, que não pertence a nenhum item das solicitações selecionadas.`,
 			);
 			continue;
 		}
 
-		const item = candidatos.find((i) =>
-			norm(i.referencia) === norm(l.referencia) &&
-			(!i.cor || !l.cor || norm(i.cor) === norm(l.cor)) &&
-			(!i.tamanho || !l.tamanho || norm(i.tamanho) === norm(l.tamanho)),
+		const correspondentes = candidatos.filter(
+			(item) =>
+				norm(item.referencia) === norm(l.referencia) &&
+				(!item.cor || norm(item.cor) === norm(l.cor)) &&
+				(!item.tamanho || norm(item.tamanho) === norm(l.tamanho)),
 		);
-
-		if (!item) {
+		if (correspondentes.length === 0) {
 			const referenciaEsperada = candidatos[0].referencia;
 			erros.push(
 				`ERRO: EPC ${l.epc} possui referência ${l.referencia}, mas a solicitação esperava ${referenciaEsperada}.`,
@@ -148,36 +140,32 @@ export function validarRetornoEpcs(
 			continue;
 		}
 
-		const chave = chaveProduto(item);
-		linhasPorProduto.set(chave, [...(linhasPorProduto.get(chave) ?? []), l]);
-		contagem.set(chave, (contagem.get(chave) ?? 0) + 1);
-	}
+		const chave = chaveProduto(correspondentes[0]);
+		recebidoPorProduto.set(chave, (recebidoPorProduto.get(chave) ?? 0) + 1);
 
-	// Compara a quantidade total recebida com o total solicitado em todas
-	// as solicitações selecionadas para cada produto.
-	const recebidoPorItem = new Map<string, number>();
-	for (const [chave, grupo] of itensPorProduto) {
-		const solicitado = grupo.reduce((total, item) => total + item.quantidade, 0);
-		const recebido = contagem.get(chave) ?? 0;
-		const ok = recebido === solicitado;
-		if (!ok) {
-			const produto = grupo[0];
-			erros.push(
-				`ERRO: Divergência de quantidade no SKU ${produto.sku} (ref. ${produto.referencia}). Solicitado no total: ${solicitado} / Recebido: ${recebido}.`,
+		const itemParaVinculo = correspondentes.find(
+			(item) => (quantidadeRestantePorItem.get(item.id) ?? 0) > 0,
+		);
+		if (itemParaVinculo) {
+			vinculos.set(l.epc, itemParaVinculo.id);
+			quantidadeRestantePorItem.set(
+				itemParaVinculo.id,
+				(quantidadeRestantePorItem.get(itemParaVinculo.id) ?? 0) - 1,
+			);
+			recebidoPorItem.set(
+				itemParaVinculo.id,
+				(recebidoPorItem.get(itemParaVinculo.id) ?? 0) + 1,
 			);
 		}
+	}
 
-		// Distribui os EPCs pelas linhas individuais das solicitações, respeitando
-		// a quantidade pedida em cada uma delas para manter os vínculos corretos.
-		let indiceLinha = 0;
-		for (const item of grupo) {
-			let atribuidos = 0;
-			while (indiceLinha < (linhasPorProduto.get(chave)?.length ?? 0) && atribuidos < item.quantidade) {
-				const linha = linhasPorProduto.get(chave)![indiceLinha++];
-				if (linha.epc) vinculos.set(linha.epc, item.id);
-				atribuidos += 1;
-			}
-			recebidoPorItem.set(item.id, atribuidos);
+	for (const [chave, grupo] of itensPorProduto) {
+		const solicitado = grupo.reduce((total, item) => total + item.quantidade, 0);
+		const recebido = recebidoPorProduto.get(chave) ?? 0;
+		if (recebido !== solicitado) {
+			erros.push(
+				`ERRO: Divergência de quantidade no SKU ${grupo[0].sku} (ref. ${grupo[0].referencia}). Solicitado no total: ${solicitado} / Recebido: ${recebido}.`,
+			);
 		}
 	}
 
