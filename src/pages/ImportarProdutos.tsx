@@ -1,11 +1,12 @@
 import { useState } from 'react';
+import useSWR from 'swr';
 import { Link } from 'react-router';
 import { ArrowLeft, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';;
 import { PageHeader } from '../components/Layout';
 import { Alert, Button, Card, CardHeader, inputClass, Spinner } from '../components/ui';
 import { lerPlanilha } from '../lib/planilha';
-import { parseDecimal } from '../lib/format';
+import { formatNumber, parseDecimal } from '../lib/format';
 
 const COLUNAS_OBRIGATORIAS = ['referencia', 'sku'];
 const ALIAS: Record<string, string> = {
@@ -45,6 +46,28 @@ interface LinhaProcessada {
   problemas: string[];
 }
 
+interface ResumoBaseProdutos {
+  totalProdutos: number;
+  totalSkus: number;
+}
+
+async function buscarResumoBase(): Promise<ResumoBaseProdutos> {
+  if (!supabase) throw new Error('Conexão com a base de produtos indisponível.');
+
+  const [produtos, skus] = await Promise.all([
+    supabase.from('products').select('id', { count: 'exact', head: true }),
+    supabase.from('products').select('sku', { count: 'exact', head: true }).not('sku', 'is', null).neq('sku', '')
+  ]);
+
+  if (produtos.error) throw produtos.error;
+  if (skus.error) throw skus.error;
+
+  return {
+    totalProdutos: produtos.count ?? 0,
+    totalSkus: skus.count ?? 0
+  };
+}
+
 export default function ImportarProdutos() {
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [analisando, setAnalisando] = useState(false);
@@ -56,6 +79,11 @@ export default function ImportarProdutos() {
   const [novos, setNovos] = useState(0);
   const [atualizados, setAtualizados] = useState(0);
   const [analisado, setAnalisado] = useState(false);
+  const {
+    data: resumoBase,
+    error: erroResumoBase,
+    mutate: atualizarResumoBase
+  } = useSWR<ResumoBaseProdutos>(supabase ? 'base-produtos-resumo' : null, buscarResumoBase);
 
   const limpar = () => {
     setValidas([]);
@@ -176,6 +204,7 @@ export default function ImportarProdutos() {
       }
     }
     setImportando(false);
+    await atualizarResumoBase();
     setSucesso(`Importação concluída. ${novos} produto(s) incluído(s) e ${atualizados} atualizado(s).`);
     setValidas([]);
     setInvalidas([]);
@@ -195,6 +224,19 @@ export default function ImportarProdutos() {
 					</Link>
         } />
 
+
+      <Card>
+        <CardHeader titulo="Produtos na base" descricao="Totais cadastrados atualmente na base de produtos." />
+        <div className="grid grid-cols-1 gap-4 px-5 py-4 sm:grid-cols-2">
+          <Resumo titulo="Produtos cadastrados" valor={resumoBase?.totalProdutos ?? null} cor="text-slate-900" />
+          <Resumo titulo="SKUs cadastrados" valor={resumoBase?.totalSkus ?? null} cor="text-slate-900" />
+        </div>
+        {erroResumoBase ? (
+          <div className="px-5 pb-4">
+            <Alert tipo="erro" titulo="Não foi possível carregar os totais">{erroResumoBase.message}</Alert>
+          </div>
+        ) : null}
+      </Card>
 
 			{erroGeral ? <Alert tipo="erro" titulo="Não foi possível processar">{erroGeral}</Alert> : null}
 			{sucesso ? <Alert tipo="sucesso">{sucesso}</Alert> : null}
@@ -275,11 +317,13 @@ export default function ImportarProdutos() {
 
 }
 
-function Resumo({ titulo, valor, cor }: {titulo: string;valor: number;cor: string;}) {
+function Resumo({ titulo, valor, cor }: {titulo: string;valor: number | null;cor: string;}) {
   return (
     <div data-ev-id="ev_0746ff7b54" className="flex flex-col gap-1 rounded-md border border-border px-4 py-3">
 			<span data-ev-id="ev_ce9f39e544" className="text-xs uppercase text-muted-foreground">{titulo}</span>
-			<span data-ev-id="ev_cc352aa6b1" className={`text-2xl font-semibold ${cor}`}>{valor}</span>
+			<span data-ev-id="ev_cc352aa6b1" className={`text-2xl font-semibold ${cor}`}>
+        {valor === null ? '—' : formatNumber(valor)}
+      </span>
 		</div>);
 
 }
